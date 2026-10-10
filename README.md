@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/icon.png" alt="BitChess icon" width="128" height="128" />
+  <img src="assets/icons/icon.png" alt="BitChess icon" width="128" height="128" />
 
   # BitChess
 
@@ -117,20 +117,6 @@ There is **no build step**. The repository is a static site, so a deployment ser
 | **localStorage** | Store visual preferences and the in-progress game in the browser |
 
 The JavaScript libraries and font are loaded from CDNs in `index.html` and `script.js`. There is no `package.json` or dependency installation step in the current project.
-
-## 📁 Project structure
-
-```text
-BitChess/
-├── assets/
-│   ├── icon.png          # Main project icon
-│   ├── icon-32.png       # Browser favicon
-│   └── icon-192.png      # App / home-screen icon
-├── index.html            # HTML entry point and CDN dependencies
-├── script.js             # Chess logic, bot, 3D scene, UI, and settings
-├── style.css             # Layout, colors, and visual styling
-└── README.md             # Project documentation
-```
 
 ## ⚙️ Settings overview
 

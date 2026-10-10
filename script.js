@@ -16,20 +16,84 @@ let playMode = "bot",
   camZoom = 1,
   targetAzimuth = null,
   needsRender = 1,
-  pointerDown = null;
+  pointerDown = null,
+  isDiscoMode = false;
+
+const bgMusic = new Audio("assets/music/music.mp3");
+bgMusic.loop = true;
+bgMusic.volume = 0.4;
+const discoMusic = new Audio("assets/music/disco.mp3");
+discoMusic.loop = false;
+let discoTimeout = null;
 
 const LEVEL_LABELS = ["Débutant", "Facile", "Moyen", "Fort", "Expert"];
 
 /* ---- Position pre-calculations (zero allocation during gameplay) ---- */
 const SQUARES_LIST = chessApp.SQUARES || [
-  "a8", "b8", "c8", "d8", "e8", "f8", "g8", "h8",
-  "a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7",
-  "a6", "b6", "c6", "d6", "e6", "f6", "g6", "h6",
-  "a5", "b5", "c5", "d5", "e5", "f5", "g5", "h5",
-  "a4", "b4", "c4", "d4", "e4", "f4", "g4", "h4",
-  "a3", "b3", "c3", "d3", "e3", "f3", "g3", "h3",
-  "a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2",
-  "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1",
+  "a8",
+  "b8",
+  "c8",
+  "d8",
+  "e8",
+  "f8",
+  "g8",
+  "h8",
+  "a7",
+  "b7",
+  "c7",
+  "d7",
+  "e7",
+  "f7",
+  "g7",
+  "h7",
+  "a6",
+  "b6",
+  "c6",
+  "d6",
+  "e6",
+  "f6",
+  "g6",
+  "h6",
+  "a5",
+  "b5",
+  "c5",
+  "d5",
+  "e5",
+  "f5",
+  "g5",
+  "h5",
+  "a4",
+  "b4",
+  "c4",
+  "d4",
+  "e4",
+  "f4",
+  "g4",
+  "h4",
+  "a3",
+  "b3",
+  "c3",
+  "d3",
+  "e3",
+  "f3",
+  "g3",
+  "h3",
+  "a2",
+  "b2",
+  "c2",
+  "d2",
+  "e2",
+  "f2",
+  "g2",
+  "h2",
+  "a1",
+  "b1",
+  "c1",
+  "d1",
+  "e1",
+  "f1",
+  "g1",
+  "h1",
 ];
 
 const POSITIONS = {};
@@ -79,7 +143,10 @@ createSoftBox(8, 4, 10, 5, -3, 3);
 createSoftBox(14, 3, 0, 3, -10, 2);
 createSoftBox(6, 6, 0, 14, 0, 4);
 
-scene.environment = new THREE.PMREMGenerator(renderer).fromScene(envScene, 0.04).texture;
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(
+  envScene,
+  0.04,
+).texture;
 scene.add(new THREE.HemisphereLight(0xffffff, 0x554466, 0.25));
 
 const dirLight = new THREE.DirectionalLight(0xfff0dc, 1.25);
@@ -137,6 +204,7 @@ const DEFAULT_SKIN = {
   q: 1.5,
   ct: 0.5,
   cu: { p: [], b: [], bg: [] },
+  bgm: 1,
 };
 
 let storedSkin = {};
@@ -249,14 +317,20 @@ noiseCanvas.width = noiseCanvas.height = 32;
 const noiseCtx = noiseCanvas.getContext("2d");
 let seedVal = 5;
 
-const seededRandom = () => (seedVal = (seedVal * 1664525 + 1013904223) >>> 0) / 4294967296;
+const seededRandom = () =>
+  (seedVal = (seedVal * 1664525 + 1013904223) >>> 0) / 4294967296;
 
 noiseCtx.fillStyle = "#fff";
 noiseCtx.fillRect(0, 0, 32, 32);
 
 for (let i = 0; i < 140; i++) {
   noiseCtx.fillStyle = seededRandom() < 0.5 ? "#d4d4d4" : "#f2f2f2";
-  noiseCtx.fillRect((seededRandom() * 32) | 0, (seededRandom() * 32) | 0, 1 + (seededRandom() < 0.3), 1);
+  noiseCtx.fillRect(
+    (seededRandom() * 32) | 0,
+    (seededRandom() * 32) | 0,
+    1 + (seededRandom() < 0.3),
+    1,
+  );
 }
 
 noiseCtx.fillStyle = "#fff";
@@ -274,7 +348,15 @@ const applyMatProps = (mat, props) => {
   mat.clearcoat = props[3];
   mat.opacity = props[4];
   mat.transparent = props[4] < 1;
-  mat.emissive.copy(mat.color).multiplyScalar(props[5]);
+
+  mat.depthWrite = true;
+
+  if (props[5] === 0) {
+    mat.emissive.setHex(0x000000);
+  } else {
+    mat.emissive.copy(mat.color).multiplyScalar(props[5]);
+  }
+
   mat.needsUpdate = true;
 };
 
@@ -332,11 +414,15 @@ function applySkinSettings() {
     }),
   );
 
-  const boardScale = Math.min(1, boardProps.sh >= 0 ? SHAPE_DATA[boardProps.sh][1] * 0.99 : 1);
+  const boardScale = Math.min(
+    1,
+    boardProps.sh >= 0 ? SHAPE_DATA[boardProps.sh][1] * 0.99 : 1,
+  );
   const boardHeight = SHAPE_DATA[boardProps.sh][2];
 
   boardMats.forEach((mat, i) => {
-    const file = i >> 3, rank = i & 7;
+    const file = i >> 3,
+      rank = i & 7;
     mat.color.set((file + rank) % 2 ? boardProps.a : boardProps.b);
     if (boardProps.g) applyGradient(mat.color, boardProps, (file + rank) / 14);
     mat.color.multiplyScalar(1 - 0.35 * currentSkin.ct);
@@ -436,12 +522,43 @@ const getVoxelGeo = (w, h, d) =>
   ));
 
 const PIECE_RECIPES = {
-  p: [[6, 1], [4, 2], [2, 1], [4, 2]],
-  r: [[6, 1], [4, 4], [6, 2]],
-  b: [[6, 1], [4, 2], [2, 3], [4, 2], [2, 1]],
-  n: [[6, 1], [4, 3]],
-  q: [[6, 1], [4, 3], [2, 3], [6, 1], [4, 2], [2, 1]],
-  k: [[6, 1], [4, 3], [2, 3], [6, 1], [4, 1]],
+  p: [
+    [6, 1],
+    [4, 2],
+    [2, 1],
+    [4, 2],
+  ],
+  r: [
+    [6, 1],
+    [4, 4],
+    [6, 2],
+  ],
+  b: [
+    [6, 1],
+    [4, 2],
+    [2, 3],
+    [4, 2],
+    [2, 1],
+  ],
+  n: [
+    [6, 1],
+    [4, 3],
+  ],
+  q: [
+    [6, 1],
+    [4, 3],
+    [2, 3],
+    [6, 1],
+    [4, 2],
+    [2, 1],
+  ],
+  k: [
+    [6, 1],
+    [4, 3],
+    [2, 3],
+    [6, 1],
+    [4, 1],
+  ],
 };
 
 function buildPieceGroup(type, colorCode) {
@@ -449,14 +566,22 @@ function buildPieceGroup(type, colorCode) {
     shapeConfig = SHAPE_DATA[currentSkin.p.sh],
     matArray = pieceMats[colorCode == "w" ? 0 : 1];
 
-  let yOffset = 0, layerIdx = 0;
+  let yOffset = 0,
+    layerIdx = 0;
 
   const addPart = (w, h, d, x, y, z, matIdx = 5) => {
-    const partMesh = new THREE.Mesh(
-      getVoxelGeo(w, h, d),
-      matArray[Math.min(5, matIdx)],
+    const partGeo = new THREE.BoxGeometry(
+      w * VOXEL_UNIT * 0.94,
+      h * VOXEL_UNIT * 0.94,
+      d * VOXEL_UNIT * 0.94,
     );
-    partMesh.position.set(x * VOXEL_UNIT, (y + h / 2) * VOXEL_UNIT, z * VOXEL_UNIT);
+
+    const partMesh = new THREE.Mesh(partGeo, matArray[Math.min(5, matIdx)]);
+    partMesh.position.set(
+      x * VOXEL_UNIT,
+      (y + h / 2) * VOXEL_UNIT,
+      z * VOXEL_UNIT,
+    );
     partMesh.castShadow = true;
     partMesh.matrixAutoUpdate = false;
     partMesh.updateMatrix();
@@ -465,7 +590,8 @@ function buildPieceGroup(type, colorCode) {
     if (currentSkin.ol) {
       const outline = new THREE.Mesh(partMesh.geometry, outlineMat);
       outline.position.copy(partMesh.position);
-      outline.scale.set(1.3, 1.12, 1.3);
+      // Contour affiné et ajusté pour épouser parfaitement le bloc
+      outline.scale.set(1.08, 1.08, 1.08);
       outline.matrixAutoUpdate = false;
       outline.updateMatrix();
       group.add(outline);
@@ -514,7 +640,11 @@ function buildPieceGroup(type, colorCode) {
 
   if (colorCode == "b") group.rotation.y = Math.PI;
 
-  group.scale.set(1.12 * shapeConfig[1], 1.12 * shapeConfig[2], 1.12 * shapeConfig[1]);
+  group.scale.set(
+    1.12 * shapeConfig[1],
+    1.12 * shapeConfig[2],
+    1.12 * shapeConfig[1],
+  );
   group.userData.bs = group.scale.clone();
   return group;
 }
@@ -526,7 +656,10 @@ const outlineMat = new THREE.MeshBasicMaterial({
 });
 
 const particlePool = Array.from({ length: 28 }, () => {
-  const mesh = new THREE.Mesh(getVoxelGeo(1.2, 1.2, 1.2), new THREE.MeshBasicMaterial());
+  const mesh = new THREE.Mesh(
+    getVoxelGeo(1.2, 1.2, 1.2),
+    new THREE.MeshBasicMaterial(),
+  );
   mesh.visible = false;
   mesh.userData.v = new THREE.Vector3();
   mesh.userData.l = 0;
@@ -558,6 +691,7 @@ function spawnParticles(posVector, hexColor) {
 let activePieces = {};
 const moveAnims = [],
   fadeAnims = [];
+returnAnims = [];
 
 function spawnPiece(type, color, square) {
   const group = buildPieceGroup(type, color);
@@ -603,7 +737,9 @@ function startMoveAnim(fromSq, toSq) {
 
 function applyMoveEffect(moveObj) {
   const rank = moveObj.from[1],
-    capturedSq = moveObj.flags.includes("e") ? moveObj.to[0] + rank : moveObj.to;
+    capturedSq = moveObj.flags.includes("e")
+      ? moveObj.to[0] + rank
+      : moveObj.to;
 
   if (moveObj.captured && activePieces[capturedSq]) {
     spawnParticles(
@@ -620,7 +756,11 @@ function applyMoveEffect(moveObj) {
 
   if (moveObj.promotion) {
     scene.remove(activePieces[moveObj.from]);
-    activePieces[moveObj.from] = spawnPiece(moveObj.promotion, moveObj.color, moveObj.from);
+    activePieces[moveObj.from] = spawnPiece(
+      moveObj.promotion,
+      moveObj.color,
+      moveObj.from,
+    );
   }
 
   startMoveAnim(moveObj.from, moveObj.to);
@@ -670,7 +810,8 @@ function updateGameStatus(isThinking) {
   let textLabel;
 
   if (chessApp.in_checkmate()) {
-    textLabel = "Mat · " + (chessApp.turn() == "w" ? "noirs" : "blancs") + " gagnent";
+    textLabel =
+      "Mat · " + (chessApp.turn() == "w" ? "noirs" : "blancs") + " gagnent";
     isGameOver = 1;
   } else if (chessApp.in_draw()) {
     textLabel = "Partie nulle";
@@ -685,7 +826,7 @@ function updateGameStatus(isThinking) {
 
   statusTextContent = textLabel + (playMode == "bot" ? " · NV" + botLevel : "");
   qs("#statusText").textContent = statusTextContent + " · " + formatTimer();
-  
+
   clearTimeout(gameEndTimeout);
   if (isGameOver && !gameEndTriggered) {
     gameEndTriggered = 1;
@@ -724,7 +865,12 @@ function executeMove(moveStr) {
     cameraShake = Math.max(cameraShake, 0.08);
   }
 
-  if (playMode == "bot" && currentSkin.ad && moveObj.color == playerColor && !isGameOver) {
+  if (
+    playMode == "bot" &&
+    currentSkin.ad &&
+    moveObj.color == playerColor &&
+    !isGameOver
+  ) {
     let score = 0;
     for (const row of chessApp.board()) {
       for (const piece of row) {
@@ -746,9 +892,9 @@ function executeMove(moveStr) {
 }
 
 function handleMove(fromSq, toSq) {
-  const promoMove = chessApp.moves({ square: fromSq, verbose: true }).find(
-    (m) => m.to == toSq && m.promotion,
-  );
+  const promoMove = chessApp
+    .moves({ square: fromSq, verbose: true })
+    .find((m) => m.to == toSq && m.promotion);
   if (promoMove && currentSkin.pr) {
     return openModal("PROMOTION", (panel) =>
       panel.append(
@@ -768,7 +914,8 @@ function commitMove(moveData) {
 }
 
 function onSquareClick(sqName) {
-  if (isGameOver || isBusy || isModalOpen || isTitleScreen || !isMyTurn()) return;
+  if (isGameOver || isBusy || isModalOpen || isTitleScreen || !isMyTurn())
+    return;
 
   if (selectedSq && legalMoves.includes(sqName)) {
     handleMove(selectedSq, sqName);
@@ -779,7 +926,9 @@ function onSquareClick(sqName) {
 
   if (piece && piece.color == chessApp.turn() && sqName != selectedSq) {
     selectedSq = sqName;
-    legalMoves = chessApp.moves({ square: sqName, verbose: true }).map((m) => m.to);
+    legalMoves = chessApp
+      .moves({ square: sqName, verbose: true })
+      .map((m) => m.to);
   } else {
     selectedSq = null;
     legalMoves = [];
@@ -789,10 +938,13 @@ function onSquareClick(sqName) {
 }
 
 function setCamAngle(targetRad) {
-  targetAzimuth = targetRad + Math.PI * 2 * Math.round((camAzimuth - targetRad) / (Math.PI * 2));
+  targetAzimuth =
+    targetRad +
+    Math.PI * 2 * Math.round((camAzimuth - targetRad) / (Math.PI * 2));
 }
 
 function startNewGame() {
+  hideBottomNewGameButton();
   chessApp.reset();
   if (currentSkin.hc && playMode == "bot") {
     const botColor = playerColor == "w" ? "b" : "w",
@@ -804,7 +956,7 @@ function startNewGame() {
       ["a" + backRank, "h" + backRank],
       ["f" + pawnRank, "g" + pawnRank, "h" + pawnRank],
     ][currentSkin.hc].forEach((sq) => chessApp.remove(sq));
-    
+
     const fenParts = chessApp.fen().split(" ");
     fenParts[2] = "-";
     chessApp.load(fenParts.join(" "));
@@ -842,7 +994,8 @@ function undoLastMove() {
   updateGameStatus();
   updateHighlights();
 
-  if (playMode == "bot" && chessApp.turn() != playerColor && !isGameOver) requestBotMove();
+  if (playMode == "bot" && chessApp.turn() != playerColor && !isGameOver)
+    requestBotMove();
 }
 
 /* ---- Bot (Web Worker: UI never blocked) ---- */
@@ -861,14 +1014,17 @@ sco.forEach((s,i)=>{s+=Math.random()*nz;if(s>bs){bs=s;bi=i}});
 if(L<7&&Math.random()<(7-L)*.05)bi=(Math.random()*ms.length)|0;
 const m=ms[bi];postMessage(m?{from:m.from,to:m.to}:null)};`;
 
-const chessWorker = new Worker(URL.createObjectURL(new Blob([BOT_WORKER_CODE])));
+const chessWorker = new Worker(
+  URL.createObjectURL(new Blob([BOT_WORKER_CODE])),
+);
 
 function requestBotMove() {
   isBusy = 1;
   updateGameStatus(1);
   chessWorker.onmessage = (e) => {
     isBusy = 0;
-    if (e.data) executeMove({ from: e.data.from, to: e.data.to, promotion: "q" });
+    if (e.data)
+      executeMove({ from: e.data.from, to: e.data.to, promotion: "q" });
   };
   chessWorker.postMessage({ fen: chessApp.fen(), L: botLevel });
 }
@@ -893,12 +1049,14 @@ const createEl = (tag, className, text, onClick) => {
 };
 
 const formatTimer = () => {
-  const seconds = (((isGameOver ? gameEndTime : performance.now()) - gameStartTime) / 1e3) | 0;
+  const rawSeconds = (((isGameOver ? gameEndTime : performance.now()) - gameStartTime) / 1e3) | 0;
+  const seconds = Math.max(0, rawSeconds);
   return ((seconds / 60) | 0) + ":" + String(seconds % 60).padStart(2, "0");
 };
 
 setInterval(() => {
-  if (!isGameOver) qs("#statusText").textContent = statusTextContent + " · " + formatTimer();
+  if (!isGameOver)
+    qs("#statusText").textContent = statusTextContent + " · " + formatTimer();
 }, 1000);
 
 let pauseTime = 0,
@@ -926,28 +1084,36 @@ function openModal(titleText, buildContent) {
   clearTimeout(closeTimeout);
   modalEl.classList.remove("fade-out");
   modalEl.hidden = false;
-  
+
   if (!isModalOpen && !isGameOver) pauseTime = performance.now();
   isModalOpen = 1;
   modalEl.onclick = (e) => e.target == modalEl && closeModal();
-  
+
   let isFirstRender = 1;
   const renderModal = () => {
-    const panel = createEl("div", "modal-panel panel-bg" + (isFirstRender ? " pop-anim" : ""));
+    const panel = createEl(
+      "div",
+      "modal-panel panel-bg" + (isFirstRender ? " pop-anim" : ""),
+    );
     const header = createEl("div", "modal-header");
-    
-    header.append(createEl("b", "", titleText), createEl("button", "close-btn", "X", closeModal));
+
+    header.append(
+      createEl("b", "", titleText),
+      createEl("button", "close-btn", "X", closeModal),
+    );
     panel.append(header);
-    
+
     buildContent(panel, renderModal);
-    
+
     if (isFirstRender) {
-      [...panel.children].forEach((child, i) => (child.style.animationDelay = i * 35 + "ms"));
+      [...panel.children].forEach(
+        (child, i) => (child.style.animationDelay = i * 35 + "ms"),
+      );
     }
     isFirstRender = 0;
     modalEl.replaceChildren(panel);
   };
-  
+
   renderModal();
 }
 
@@ -959,15 +1125,16 @@ const playBeep = (freq, duration, type = "square", vol = 0.08, rampEndFreq) => {
     const osc = audioCtx.createOscillator(),
       gainNode = audioCtx.createGain(),
       now = audioCtx.currentTime;
-      
+
     osc.type = type;
     osc.frequency.setValueAtTime(freq, now);
-    
-    if (rampEndFreq) osc.frequency.exponentialRampToValueAtTime(rampEndFreq, now + duration);
-    
+
+    if (rampEndFreq)
+      osc.frequency.exponentialRampToValueAtTime(rampEndFreq, now + duration);
+
     gainNode.gain.setValueAtTime(vol * currentSkin.vo * 2, now);
     gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
-    
+
     osc.connect(gainNode).connect(audioCtx.destination);
     osc.start();
     osc.stop(now + duration);
@@ -1006,34 +1173,49 @@ const saveGameState = () => {
 
 function resumeGame() {
   let savedData;
-  try { savedData = JSON.parse(localStorage.bcg); } catch (e) {}
+  try {
+    savedData = JSON.parse(localStorage.bcg);
+  } catch (e) {}
   if (!savedData) return startGame();
-  
+
   playMode = savedData.m;
   playerColor = savedData.c;
   isGameOver = 0;
   chessApp.load_pgn(savedData.pgn);
-  
+
   resetBoard3D();
   gameStartTime = performance.now() - savedData.el;
-  
+
   const lastHistory = chessApp.history({ verbose: true }).pop();
   lastMove = lastHistory ? [lastHistory.from, lastHistory.to] : [];
-  
+
   selectedSq = null;
   legalMoves = [];
-  
+
   updateGameStatus();
   updateHighlights();
   setCamAngle(playerColor == "b" && playMode != "local" ? Math.PI : 0);
-  
-  if (playMode == "bot" && chessApp.turn() != playerColor && !isGameOver) requestBotMove();
+
+  if (playMode == "bot" && chessApp.turn() != playerColor && !isGameOver)
+    requestBotMove();
 }
 
-const createSegmentCtrl = (items, activeIdx, onSelect, customClass = "segment-group") => {
+const createSegmentCtrl = (
+  items,
+  activeIdx,
+  onSelect,
+  customClass = "segment-group",
+) => {
   const container = createEl("div", customClass);
   items.forEach((label, idx) =>
-    container.append(createEl("button", "item-btn" + (idx == activeIdx ? " active" : ""), label, () => onSelect(idx))),
+    container.append(
+      createEl(
+        "button",
+        "item-btn" + (idx == activeIdx ? " active" : ""),
+        label,
+        () => onSelect(idx),
+      ),
+    ),
   );
   return container;
 };
@@ -1047,7 +1229,10 @@ const createLabel = (title, value) => {
 const createRangeCtrl = (min, max, step, val, onChange) => {
   const input = createEl("input");
   input.type = "range";
-  input.min = min; input.max = max; input.step = step; input.value = val;
+  input.min = min;
+  input.max = max;
+  input.step = step;
+  input.value = val;
   input.oninput = () => onChange(+input.value);
   input.onchange = saveSkin;
   return input;
@@ -1055,7 +1240,8 @@ const createRangeCtrl = (min, max, step, val, onChange) => {
 
 const createColorCtrl = (val, onChange) => {
   const input = createEl("input");
-  input.type = "color"; input.value = val;
+  input.type = "color";
+  input.value = val;
   input.oninput = () => onChange(input.value);
   input.onchange = saveSkin;
   return input;
@@ -1068,24 +1254,37 @@ const createSwatchCtrl = (colA, colB, onClick, titleText) => {
   return btn;
 };
 
-const getLevelName = () => botLevel + " · " + LEVEL_LABELS[Math.min(6, ((botLevel - 1) / 3) | 0)];
+const getLevelName = () =>
+  botLevel + " · " + LEVEL_LABELS[Math.min(6, ((botLevel - 1) / 3) | 0)];
 
 function startGame() {
-  playerColor = playMode == "local" ? "w" : chosenColor == "r" ? "wb"[(Math.random() * 2) | 0] : chosenColor;
+  playerColor =
+    playMode == "local"
+      ? "w"
+      : chosenColor == "r"
+        ? "wb"[(Math.random() * 2) | 0]
+        : chosenColor;
   startNewGame();
 }
 
 function openBotModal() {
   openModal("BOT", (panel, reRender) => {
     panel.append(
-      createSegmentCtrl(["BOT", "2 JOUEURS"], playMode == "bot" ? 0 : 1, (idx) => {
-        playMode = currentSkin.mode = idx ? "local" : "bot";
-        saveSkin();
-        reRender();
-      }),
+      createSegmentCtrl(
+        ["BOT", "2 JOUEURS"],
+        playMode == "bot" ? 0 : 1,
+        (idx) => {
+          playMode = currentSkin.mode = idx ? "local" : "bot";
+          saveSkin();
+          reRender();
+        },
+      ),
     );
     if (playMode == "bot") {
-      const lbl = createLabel(currentSkin.ad ? "NIVEAU (ADAPTATIF)" : "NIVEAU", getLevelName());
+      const lbl = createLabel(
+        currentSkin.ad ? "NIVEAU (ADAPTATIF)" : "NIVEAU",
+        getLevelName(),
+      );
       panel.append(
         lbl,
         createRangeCtrl(1, 21, 1, botLevel, (val) => {
@@ -1098,11 +1297,15 @@ function openBotModal() {
           reRender();
         }),
         createLabel("JE JOUE", ""),
-        createSegmentCtrl(["BLANCS", "NOIRS", "HASARD"], "wbr".indexOf(chosenColor), (idx) => {
-          chosenColor = currentSkin.col = "wbr"[idx];
-          saveSkin();
-          reRender();
-        }),
+        createSegmentCtrl(
+          ["BLANCS", "NOIRS", "HASARD"],
+          "wbr".indexOf(chosenColor),
+          (idx) => {
+            chosenColor = currentSkin.col = "wbr"[idx];
+            saveSkin();
+            reRender();
+          },
+        ),
       );
     }
     panel.append(
@@ -1143,61 +1346,95 @@ function openSkinModal() {
   openModal("SKIN", (panel, reRender) => {
     const categories = ["p", "b", "bg"],
       activeSettings = currentSkin[currentSkinTab],
-      applyChanges = () => { applySkinSettings(); saveSkin(); },
+      applyChanges = () => {
+        applySkinSettings();
+        saveSkin();
+      },
       isBgTab = currentSkinTab == "bg",
       gridContainer = createEl("div", "grid-group"),
       colorContainer = createEl("div", "color-box");
 
     panel.append(
-      createSegmentCtrl(["PIÈCES", "PLATEAU", "FOND"], categories.indexOf(currentSkinTab), (idx) => {
-        currentSkinTab = categories[idx];
-        reRender();
-      }),
+      createSegmentCtrl(
+        ["PIÈCES", "PLATEAU", "FOND"],
+        categories.indexOf(currentSkinTab),
+        (idx) => {
+          currentSkinTab = categories[idx];
+          reRender();
+        },
+      ),
     );
 
     if (!isBgTab) {
       panel.append(
         createLabel("FORME", SHAPE_DATA[activeSettings.sh][0]),
-        createSegmentCtrl(SHAPE_DATA.map((x) => x[0]), activeSettings.sh, (idx) => {
-          activeSettings.sh = idx;
-          applyChanges();
-          if (currentSkinTab == "p") resetBoard3D();
-          reRender();
-        }, "grid-group"),
+        createSegmentCtrl(
+          SHAPE_DATA.map((x) => x[0]),
+          activeSettings.sh,
+          (idx) => {
+            activeSettings.sh = idx;
+            applyChanges();
+            if (currentSkinTab == "p") resetBoard3D();
+            reRender();
+          },
+          "grid-group",
+        ),
         createLabel("MATIÈRE", MAT_DATA[activeSettings.mt][0]),
-        createSegmentCtrl(MAT_DATA.map((x) => x[0]), activeSettings.mt, (idx) => {
-          activeSettings.mt = idx;
-          applyChanges();
-          reRender();
-        }, "grid-group"),
+        createSegmentCtrl(
+          MAT_DATA.map((x) => x[0]),
+          activeSettings.mt,
+          (idx) => {
+            activeSettings.mt = idx;
+            applyChanges();
+            reRender();
+          },
+          "grid-group",
+        ),
       );
     }
 
     panel.append(createLabel(isBgTab ? "PRESETS" : "COULEURS", ""));
     (isBgTab ? BG_PRESETS : PIECE_PRESETS).forEach((preset) =>
       gridContainer.append(
-        createSwatchCtrl(preset[1], preset[2], () => {
-          activeSettings.a = preset[1];
-          activeSettings.b = preset[2];
-          applyChanges();
-          reRender();
-        }, preset[0]),
+        createSwatchCtrl(
+          preset[1],
+          preset[2],
+          () => {
+            activeSettings.a = preset[1];
+            activeSettings.b = preset[2];
+            applyChanges();
+            reRender();
+          },
+          preset[0],
+        ),
       ),
     );
 
     colorContainer.append(
-      createColorCtrl(activeSettings.a, (val) => { activeSettings.a = val; applySkinSettings(); }),
-      createColorCtrl(activeSettings.b, (val) => { activeSettings.b = val; applySkinSettings(); }),
+      createColorCtrl(activeSettings.a, (val) => {
+        activeSettings.a = val;
+        applySkinSettings();
+      }),
+      createColorCtrl(activeSettings.b, (val) => {
+        activeSettings.b = val;
+        applySkinSettings();
+      }),
     );
 
     if (!isBgTab && activeSettings.g) {
-      colorContainer.append(createColorCtrl(activeSettings.c || activeSettings.b, (val) => {
-        activeSettings.c = val;
-        applySkinSettings();
-      }));
+      colorContainer.append(
+        createColorCtrl(activeSettings.c || activeSettings.b, (val) => {
+          activeSettings.c = val;
+          applySkinSettings();
+        }),
+      );
     }
 
-    panel.append(gridContainer, createLabel("TES COULEURS", ""), colorContainer);
+    panel.append(
+      gridContainer,
+      createLabel("TES COULEURS", ""),
+      colorContainer,
+    );
 
     if (!isBgTab) {
       panel.append(
@@ -1214,10 +1451,17 @@ function openSkinModal() {
 
     customPalettes.forEach((pal) =>
       customGrid.append(
-        createSwatchCtrl(pal[0], pal[1], () => {
-          activeSettings.a = pal[0]; activeSettings.b = pal[1];
-          applyChanges(); reRender();
-        }, "perso"),
+        createSwatchCtrl(
+          pal[0],
+          pal[1],
+          () => {
+            activeSettings.a = pal[0];
+            activeSettings.b = pal[1];
+            applyChanges();
+            reRender();
+          },
+          "perso",
+        ),
       ),
     );
 
@@ -1225,7 +1469,10 @@ function openSkinModal() {
       createLabel("MES PALETTES", customPalettes.length + "/10"),
       customGrid,
       createSegmentCtrl(["+ SAUVER", "VIDER"], -1, (idx) => {
-        idx ? (customPalettes.length = 0) : customPalettes.length < 10 && customPalettes.push([activeSettings.a, activeSettings.b]);
+        idx
+          ? (customPalettes.length = 0)
+          : customPalettes.length < 10 &&
+            customPalettes.push([activeSettings.a, activeSettings.b]);
         saveSkin();
         reRender();
       }),
@@ -1237,12 +1484,17 @@ const createToggles = (panel, reRender, toggleList) => {
   const container = createEl("div", "grid-half");
   toggleList.forEach(([label, key, callback]) =>
     container.append(
-      createEl("button", "item-btn" + (currentSkin[key] ? " active" : ""), label + " · " + (currentSkin[key] ? "ON" : "OFF"), () => {
-        currentSkin[key] = currentSkin[key] ? 0 : 1;
-        saveSkin();
-        if (callback) callback();
-        reRender();
-      }),
+      createEl(
+        "button",
+        "item-btn" + (currentSkin[key] ? " active" : ""),
+        label + " · " + (currentSkin[key] ? "ON" : "OFF"),
+        () => {
+          currentSkin[key] = currentSkin[key] ? 0 : 1;
+          saveSkin();
+          if (callback) callback();
+          reRender();
+        },
+      ),
     ),
   );
   panel.append(container);
@@ -1258,7 +1510,10 @@ function applyFxSettings() {
 }
 
 const randomHexColor = (lightness) =>
-  "#" + new THREE.Color().setHSL(Math.random(), 0.5 + Math.random() * 0.4, lightness).getHexString();
+  "#" +
+  new THREE.Color()
+    .setHSL(Math.random(), 0.5 + Math.random() * 0.4, lightness)
+    .getHexString();
 
 let optionsTab = 0;
 
@@ -1273,33 +1528,60 @@ function openOptionsModal() {
 
     if (optionsTab == 0) {
       createToggles(panel, reRender, [
-        ["COUPS POSSIBLES", "dt"], ["DERNIER COUP", "lm"],
-        ["PROMOTION AU CHOIX", "pr"], ["PLATEAU TOURNANT", "fl"], ["SONS", "sn"],
+        ["COUPS POSSIBLES", "dt"],
+        ["DERNIER COUP", "lm"],
+        ["PROMOTION AU CHOIX", "pr"],
+        ["PLATEAU TOURNANT", "fl"],
+        ["SONS", "sn"],
+        ["MUSIQUE DE FOND", "bgm", updateMusicState],
       ]);
       panel.append(
         createLabel("VOLUME", ""),
-        createRangeCtrl(0, 1, 0.1, currentSkin.vo, (val) => (currentSkin.vo = val)),
+        createRangeCtrl(
+          0,
+          1,
+          0.1,
+          currentSkin.vo,
+          (val) => (currentSkin.vo = val),
+        ),
         createLabel("HANDICAP BOT", "PROCHAINE PARTIE"),
-        createSegmentCtrl(["AUCUN", "SANS DAME", "SANS TOURS", "SANS 3 PIONS"], currentSkin.hc | 0, (idx) => {
-          currentSkin.hc = idx;
-          saveSkin();
-          reRender();
-        }, "grid-half"),
+        createSegmentCtrl(
+          ["AUCUN", "SANS DAME", "SANS TOURS", "SANS 3 PIONS"],
+          currentSkin.hc | 0,
+          (idx) => {
+            currentSkin.hc = idx;
+            saveSkin();
+            reRender();
+          },
+          "grid-half",
+        ),
       );
     } else if (optionsTab == 1) {
       createToggles(panel, reRender, [
-        ["CONTOUR PIÈCES", "ol", resetBoard3D], ["EFFETS", "fx"],
-        ["OMBRES", "sh", applyFxSettings], ["ROTATION AUTO", "rt"],
-        ["FILTRE CRT", "crt", applyFxSettings], ["MODE ZEN", "hs", applyFxSettings],
+        ["CONTOUR PIÈCES", "ol", resetBoard3D],
+        ["EFFETS", "fx"],
+        ["OMBRES", "sh", applyFxSettings],
+        ["ROTATION AUTO", "rt"],
+        ["FILTRE CRT", "crt", applyFxSettings],
+        ["MODE ZEN", "hs", applyFxSettings],
       ]);
       panel.append(
         createLabel("CONTRASTE", ""),
-        createRangeCtrl(0, 1, 0.05, currentSkin.ct, (val) => { currentSkin.ct = val; applySkinSettings(); }),
-        createLabel("RÉSOLUTION", ""),
-        createSegmentCtrl(["BAS", "NORMAL", "HAUT"], [1, 1.5, 2].indexOf(currentSkin.q), (idx) => {
-          currentSkin.q = [1, 1.5, 2][idx];
-          saveSkin(); handleResize(); reRender();
+        createRangeCtrl(0, 1, 0.05, currentSkin.ct, (val) => {
+          currentSkin.ct = val;
+          applySkinSettings();
         }),
+        createLabel("RÉSOLUTION", ""),
+        createSegmentCtrl(
+          ["BAS", "NORMAL", "HAUT"],
+          [1, 1.5, 2].indexOf(currentSkin.q),
+          (idx) => {
+            currentSkin.q = [1, 1.5, 2][idx];
+            saveSkin();
+            handleResize();
+            reRender();
+          },
+        ),
       );
     } else {
       const copyBtn = createEl("button", "btn-primary", "COPIER LE PGN", () => {
@@ -1311,20 +1593,31 @@ function openOptionsModal() {
       panel.append(
         createEl("button", "btn-primary", "INDICE", requestHint),
         copyBtn,
-        createEl("button", "btn-primary", "NOUVELLE PARTIE", () => { closeModal(); startNewGame(); }),
+        createEl("button", "btn-primary", "NOUVELLE PARTIE", () => {
+          closeModal();
+          startNewGame();
+        }),
         createEl("button", "btn-primary", "SKIN ALÉATOIRE", () => {
-          const pProps = currentSkin.p, bProps = currentSkin.b;
+          const pProps = currentSkin.p,
+            bProps = currentSkin.b;
           pProps.sh = (Math.random() * SHAPE_DATA.length) | 0;
           pProps.mt = (Math.random() * MAT_DATA.length) | 0;
-          pProps.a = randomHexColor(0.85); pProps.b = randomHexColor(0.2);
+          pProps.a = randomHexColor(0.85);
+          pProps.b = randomHexColor(0.2);
           bProps.sh = (Math.random() * SHAPE_DATA.length) | 0;
           bProps.mt = (Math.random() * MAT_DATA.length) | 0;
-          bProps.a = randomHexColor(0.65); bProps.b = randomHexColor(0.3);
-          currentSkin.bg.a = randomHexColor(0.35); currentSkin.bg.b = randomHexColor(0.06);
-          applySkinSettings(); resetBoard3D(); saveSkin();
+          bProps.a = randomHexColor(0.65);
+          bProps.b = randomHexColor(0.3);
+          currentSkin.bg.a = randomHexColor(0.35);
+          currentSkin.bg.b = randomHexColor(0.06);
+          applySkinSettings();
+          resetBoard3D();
+          saveSkin();
         }),
         createEl("button", "item-btn", "TOUT RÉINITIALISER", () => {
-          try { localStorage.clear(); } catch (e) {}
+          try {
+            localStorage.clear();
+          } catch (e) {}
           location.reload();
         }),
       );
@@ -1354,10 +1647,42 @@ function openGameOverModal(messageText) {
       createEl("div", "big-text", messageText.toUpperCase()),
       createLabel("TEMPS", formatTimer()),
       createLabel("COUPS", Math.ceil(chessApp.history().length / 2)),
-      createEl("button", "btn-primary", "REJOUER", () => { closeModal(); startNewGame(); }),
-      createEl("button", "item-btn", "VOIR LE PLATEAU", closeModal),
+      createEl("button", "btn-primary", "REJOUER", () => { 
+        hideBottomNewGameButton();
+        closeModal(); 
+        startNewGame(); 
+      }),
+      createEl("button", "item-btn", "VOIR LE PLATEAU", () => {
+        closeModal();
+        showBottomNewGameButton();
+      }),
     );
   });
+}
+
+let bottomNewGameBtn = null;
+
+function showBottomNewGameButton() {
+  if (!bottomNewGameBtn) {
+    bottomNewGameBtn = createEl("button", "btn-primary", "NOUVELLE PARTIE", () => {
+      hideBottomNewGameButton();
+      startNewGame();
+    });
+    bottomNewGameBtn.style.position = "fixed";
+    bottomNewGameBtn.style.bottom = "85px";
+    bottomNewGameBtn.style.left = "50%";
+    bottomNewGameBtn.style.transform = "translateX(-50%)";
+    bottomNewGameBtn.style.zIndex = "100";
+    bottomNewGameBtn.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.6)";
+    document.body.append(bottomNewGameBtn);
+  }
+  bottomNewGameBtn.style.display = "block";
+}
+
+function hideBottomNewGameButton() {
+  if (bottomNewGameBtn) {
+    bottomNewGameBtn.style.display = "none";
+  }
 }
 
 qs("#btnUndo").onclick = undoLastMove;
@@ -1371,6 +1696,7 @@ const hideTitleScreen = (callback) => {
   document.body.classList.remove("title-active");
   qs("#titleScreen").classList.add("fade-out");
   setTimeout(() => (qs("#titleScreen").hidden = true), 400);
+  updateMusicState();
   callback();
 };
 
@@ -1403,7 +1729,10 @@ const getMeshOwner = (meshObj) => {
 
 function performPicking(e) {
   updateRaycaster(e);
-  const hits = raycaster.intersectObjects([...boardSqMeshes, ...Object.values(activePieces)], true);
+  const hits = raycaster.intersectObjects(
+    [...boardSqMeshes, ...Object.values(activePieces)],
+    true,
+  );
   const owner = hits[0] && getMeshOwner(hits[0].object);
   if (owner) onSquareClick(owner.userData.sq);
 }
@@ -1411,14 +1740,17 @@ function performPicking(e) {
 canvasEl.onpointerdown = (e) => {
   pointerDown = { x: e.clientX, y: e.clientY, moved: 0 };
   canvasEl.setPointerCapture(e.pointerId);
-  
+
   if (currentSkin.dd && !isGameOver && !isBusy && !isModalOpen && isMyTurn()) {
     updateRaycaster(e);
     const hits = raycaster.intersectObjects(Object.values(activePieces), true);
     const owner = hits[0] && getMeshOwner(hits[0].object);
-    
+
     if (owner && chessApp.get(owner.userData.sq).color == chessApp.turn()) {
       if (selectedSq != owner.userData.sq) onSquareClick(owner.userData.sq);
+      const retIdx = returnAnims.findIndex((anim) => anim.g === owner);
+      if (retIdx !== -1) returnAnims.splice(retIdx, 1);
+
       draggedPiece = { g: owner, s: owner.userData.sq };
       pointerDown.moved = 1;
     }
@@ -1435,12 +1767,12 @@ canvasEl.onpointermove = (e) => {
     needsRender = 1;
     return;
   }
-  
+
   const deltaX = e.clientX - pointerDown.x,
     deltaY = e.clientY - pointerDown.y;
-    
+
   if (Math.abs(deltaX) + Math.abs(deltaY) > 6) pointerDown.moved = 1;
-  
+
   if (pointerDown.moved) {
     camAzimuth -= deltaX * 0.0065;
     camPolar = Math.min(1.35, Math.max(0.25, camPolar - deltaY * 0.005));
@@ -1464,7 +1796,17 @@ canvasEl.onpointerup = (e) => {
     }
     const pieceData = draggedPiece;
     draggedPiece = null;
-    if (targetSq && legalMoves.includes(targetSq)) handleMove(pieceData.s, targetSq);
+
+    if (targetSq && legalMoves.includes(targetSq)) {
+      handleMove(pieceData.s, targetSq);
+    } else {
+      returnAnims.push({
+        g: pieceData.g,
+        f: pieceData.g.position.clone(),
+        to: getPos(pieceData.s),
+        t: 0,
+      });
+    }
     needsRender = 1;
   } else if (pointerDown && !pointerDown.moved) {
     performPicking(e);
@@ -1481,18 +1823,18 @@ function renderScene() {
   const aspect = innerWidth / innerHeight,
     distance = Math.max(15, 16.5 / Math.min(aspect, 1.1)) * camZoom,
     sinPolar = Math.sin(camPolar);
-    
+
   camera.position.set(
     distance * sinPolar * Math.sin(camAzimuth),
     distance * Math.cos(camPolar),
     distance * sinPolar * Math.cos(camAzimuth),
   );
-  
+
   if (cameraShake) {
     camera.position.x += (Math.random() - 0.5) * cameraShake;
     camera.position.y += (Math.random() - 0.5) * cameraShake;
   }
-  
+
   camera.lookAt(0, -0.1, 0);
   renderer.render(scene, camera);
   needsRender = 0;
@@ -1516,7 +1858,10 @@ let lastTime = 0;
   const deltaTime = Math.min(0.05, (timestamp - lastTime) / 1000);
   lastTime = timestamp;
 
-  if ((isTitleScreen || (currentSkin.rt && !pointerDown && !isModalOpen)) && targetAzimuth == null) {
+  if (
+    (isTitleScreen || (currentSkin.rt && !pointerDown && !isModalOpen)) &&
+    targetAzimuth == null
+  ) {
     camAzimuth += deltaTime * 0.12;
     needsRender = 1;
   }
@@ -1532,20 +1877,26 @@ let lastTime = 0;
 
   for (let i = moveAnims.length; i--; ) {
     const anim = moveAnims[i],
-      progress = (anim.t = Math.min(1, anim.t + (deltaTime * currentSkin.sp) / 0.45)),
-      ease = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-      
+      progress = (anim.t = Math.min(
+        1,
+        anim.t + (deltaTime * currentSkin.sp) / 0.45,
+      )),
+      ease =
+        progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
     anim.g.position.lerpVectors(anim.f, anim.to, ease);
     const sineEase = Math.sin(progress * Math.PI),
       baseScale = anim.g.userData.bs;
-      
+
     anim.g.position.y = sineEase * 0.42;
     anim.g.scale.set(
       baseScale.x * (1 - 0.07 * sineEase),
       baseScale.y * (1 + 0.16 * sineEase),
       baseScale.z * (1 - 0.07 * sineEase),
     );
-    
+
     if (progress == 1) {
       anim.g.userData.an = 0;
       anim.g.scale.copy(baseScale);
@@ -1555,13 +1906,30 @@ let lastTime = 0;
     needsRender = 1;
   }
 
+  for (let i = returnAnims.length; i--; ) {
+    const anim = returnAnims[i],
+      progress = (anim.t = Math.min(1, anim.t + (deltaTime * currentSkin.sp) / 0.35)),
+      ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+    anim.g.position.lerpVectors(anim.f, anim.to, ease);
+    
+    if (progress == 1) {
+      anim.g.position.copy(anim.to);
+      returnAnims.splice(i, 1);
+    }
+    needsRender = 1;
+  }
+
   for (let i = fadeAnims.length; i--; ) {
     const anim = fadeAnims[i],
-      progress = (anim.t = Math.min(1, anim.t + (deltaTime * currentSkin.sp) / 0.35));
-      
+      progress = (anim.t = Math.min(
+        1,
+        anim.t + (deltaTime * currentSkin.sp) / 0.35,
+      ));
+
     anim.g.scale.copy(anim.s).multiplyScalar(1 - progress);
     anim.g.position.y = progress * 0.5;
-    
+
     if (progress == 1) {
       scene.remove(anim.g);
       fadeAnims.splice(i, 1);
@@ -1572,15 +1940,18 @@ let lastTime = 0;
   for (let i = landAnims.length; i--; ) {
     const anim = landAnims[i],
       baseScale = anim.g.userData.bs,
-      progress = (anim.t = Math.min(1, anim.t + (deltaTime * currentSkin.sp) / 0.32)),
+      progress = (anim.t = Math.min(
+        1,
+        anim.t + (deltaTime * currentSkin.sp) / 0.32,
+      )),
       bounce = Math.sin(progress * Math.PI) * (1 - progress);
-      
+
     anim.g.scale.set(
       baseScale.x * (1 + 0.12 * bounce),
       baseScale.y * (1 - 0.22 * bounce),
       baseScale.z * (1 + 0.12 * bounce),
     );
-    
+
     if (progress == 1) landAnims.splice(i, 1);
     needsRender = 1;
   }
@@ -1588,15 +1959,15 @@ let lastTime = 0;
   for (let i = particlePool.length; i--; ) {
     const particle = particlePool[i],
       data = particle.userData;
-      
+
     if (data.l <= 0) continue;
-    
+
     data.v.y -= 9 * deltaTime;
     particle.position.addScaledVector(data.v, deltaTime);
     particle.rotation.x += deltaTime * 6;
     particle.rotation.y += deltaTime * 5;
     particle.scale.setScalar(Math.max(0, data.l));
-    
+
     if ((data.l -= deltaTime * 1.6) <= 0) {
       particle.visible = false;
       data.l = 0;
@@ -1609,7 +1980,8 @@ let lastTime = 0;
     needsRender = 1;
   }
   if (selectedSq) {
-    highlightMeshes[selectedSq].material.opacity = 0.5 + 0.2 * Math.sin(timestamp / 150);
+    highlightMeshes[selectedSq].material.opacity =
+      0.5 + 0.2 * Math.sin(timestamp / 150);
     needsRender = 1;
   }
   if (legalMoves.length) {
@@ -1619,16 +1991,212 @@ let lastTime = 0;
 
   for (const sq in activePieces) {
     const group = activePieces[sq];
-    if (group.userData.an || (draggedPiece && draggedPiece.g === group)) continue;
-    const targetY = sq == selectedSq ? 0.18 + 0.05 * Math.sin(timestamp / 140) : 0;
+    if (group.userData.an || (draggedPiece && draggedPiece.g === group))
+      continue;
+    const targetY =
+      sq == selectedSq ? 0.18 + 0.05 * Math.sin(timestamp / 140) : 0;
     if (Math.abs(group.position.y - targetY) > 0.003) {
-      group.position.y += (targetY - group.position.y) * (1 - Math.exp(-deltaTime * 18));
+      group.position.y +=
+        (targetY - group.position.y) * (1 - Math.exp(-deltaTime * 18));
       needsRender = 1;
+    }
+  }
+  if (isDiscoMode) {
+    needsRender = 1;
+    
+
+    const discoTime = (timestamp - discoStartTime) * 0.001;
+
+    const hue = (timestamp * 0.08) % 360;
+    if (!(scene.background instanceof THREE.Color)) {
+      scene.background = new THREE.Color();
+    }
+    scene.background.setHSL(hue / 360, 0.9, 0.18);
+
+    const phaseDuration = 24;
+    const currentPhaseTime = discoTime % (phaseDuration * 4);
+
+    for (const sq in activePieces) {
+      const group = activePieces[sq];
+      if (group.userData.an) continue;
+
+      const piece = chessApp.get(sq);
+      if (!piece) continue;
+
+      const baseScale = group.userData.bs;
+      const isBlack = piece.color === "b";
+      const baseRotY = isBlack ? Math.PI : 0;
+
+      const fileIdx = sq.charCodeAt(0) - 97;
+      const rankIdx = parseInt(sq[1]) - 1;
+      const index = fileIdx * 8 + rankIdx;
+
+      if (currentPhaseTime < 24) {
+        const pTime = currentPhaseTime;
+        const angleOffset = (index / 64) * Math.PI * 2 + pTime * 1.5;
+        const radius = 2.4 + Math.sin(pTime * 2 + fileIdx) * 0.3;
+
+        const targetX = Math.cos(angleOffset) * radius;
+        const targetZ = Math.sin(angleOffset) * radius;
+        const targetY = 0.2 + Math.abs(Math.sin(pTime * 4 + index)) * 0.4;
+
+        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
+        group.rotation.y = baseRotY + pTime * 2;
+        group.rotation.x = Math.sin(pTime * 5 + index) * 0.2;
+        group.rotation.z = 0;
+        group.scale.copy(baseScale);
+      } else if (currentPhaseTime < 48) {
+        const pTime = currentPhaseTime - 24;
+        const side = isBlack ? -1 : 1;
+        const relX = (fileIdx - 3.5) * 0.5;
+        const relZ = (rankIdx - 3.5) * 0.5 + side * 1.5;
+
+        const pulse = Math.sin(pTime * 3) * 0.5;
+        const targetX = relX * (1 + pulse * 0.2);
+        const targetZ = relZ + Math.sin(pTime * 4 + fileIdx) * 0.3;
+        const targetY = Math.abs(Math.sin(pTime * 6 + rankIdx)) * 0.5;
+
+        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
+        group.rotation.y = baseRotY + Math.sin(pTime * 3) * 0.8;
+        group.rotation.x = 0;
+        group.rotation.z = Math.cos(pTime * 4) * 0.3;
+        group.scale.copy(baseScale);
+      } else if (currentPhaseTime < 72) {
+        const pTime = currentPhaseTime - 48;
+        const waveProgress = (pTime * 2 + index * 0.15) % (Math.PI * 4);
+
+        const targetX = Math.sin(waveProgress) * 2.5;
+        const targetZ = (index / 64) * 6 - 3;
+        const targetY = 0.1 + Math.abs(Math.sin(pTime * 8 + index)) * 0.35;
+
+        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
+        group.rotation.y = baseRotY + Math.sin(pTime * 4 + index);
+        group.rotation.x = 0;
+        group.rotation.z = Math.sin(pTime * 6) * 0.25;
+        group.scale.copy(baseScale);
+      } else {
+        const pTime = currentPhaseTime - 72;
+        const sideX = isBlack ? 2.2 : -2.2;
+        const lineZ = (fileIdx - 3.5) * 0.7;
+
+        const jumpCycle = Math.sin(pTime * 6 + fileIdx);
+        const targetX = sideX + Math.sin(pTime * 3) * 0.3;
+        const targetZ = lineZ;
+        const targetY = jumpCycle > 0 ? jumpCycle * 0.8 : 0.1;
+
+        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
+        group.rotation.y =
+          baseRotY +
+          (isBlack ? -Math.PI / 2 : Math.PI / 2) +
+          Math.sin(pTime * 8) * 0.5;
+        group.rotation.x = jumpCycle > 0 ? jumpCycle * 1.2 : 0; // Effet de salto arrière
+        group.rotation.z = Math.cos(pTime * 6) * 0.4;
+
+        const beatStretch = Math.sin(pTime * 12) * 0.2;
+        group.scale.set(
+          baseScale.x * (1 - beatStretch),
+          baseScale.y * (1 + beatStretch),
+          baseScale.z,
+        );
+      }
+    }
+
+    if (Math.random() < 0.35) {
+      const randomSq = SQUARES_LIST[(Math.random() * 64) | 0];
+      spawnParticles(getPos(randomSq), Math.random() * 0xffffff);
     }
   }
 
   if (needsRender) renderScene();
 })(0);
+
+function updateMusicState() {
+  if (!currentSkin.bgm || isTitleScreen || isDiscoMode) {
+    bgMusic.pause();
+  } else {
+    bgMusic.play().catch(() => {});
+  }
+}
+
+// ---- Easter Egg : Konami Code (up, up, down, down, left, right, left, right) ----
+const konamiSequence = [
+  "arrowup",
+  "arrowup",
+  "arrowdown",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "arrowleft",
+  "arrowright",
+];
+let konamiPosition = 0;
+
+window.addEventListener("keydown", (e) => {
+  const key = e.key.toLowerCase();
+  if (
+    key === konamiSequence[konamiPosition] ||
+    e.code.toLowerCase() === konamiSequence[konamiPosition]
+  ) {
+    konamiPosition++;
+    if (konamiPosition === konamiSequence.length) {
+      toggleDiscoMode();
+      konamiPosition = 0;
+    }
+  } else {
+    konamiPosition = 0;
+  }
+});
+
+let discoStartTime = 0;
+
+function toggleDiscoMode() {
+  isDiscoMode = !isDiscoMode;
+  
+  if (isDiscoMode) {
+    discoStartTime = performance.now();
+    bgMusic.pause();
+    discoMusic.currentTime = 0;
+    discoMusic.play().catch(() => {});
+    
+    clearTimeout(discoTimeout);
+    discoTimeout = setTimeout(() => {
+      if (isDiscoMode) toggleDiscoMode();
+    }, 96000);
+
+    cameraShake = 0.4;
+    showDiscoBanner("🎉 SHOW TIME : RONDE, TRIANGLE, CHENILLE & BATTLE ! 🎉");
+  } else {
+    clearTimeout(discoTimeout);
+    discoMusic.pause();
+    
+    if (discoStartTime) {
+      gameStartTime += performance.now() - discoStartTime;
+      discoStartTime = 0;
+    }
+
+    updateMusicState(); 
+    showDiscoBanner("💤 Retour au calme.");
+    applySkinSettings();
+    
+    for (const sq in activePieces) {
+      const group = activePieces[sq];
+      group.position.copy(getPos(sq));
+      const pieceData = chessApp.get(sq);
+      group.rotation.set(0, (pieceData && pieceData.color === 'b') ? Math.PI : 0, 0);
+      group.scale.copy(group.userData.bs);
+    }
+    needsRender = 1;
+  }
+}
+
+function showDiscoBanner(text) {
+  const statusEl = qs("#statusText");
+  const oldText = statusEl.textContent;
+  statusEl.textContent = text;
+  setTimeout(() => {
+    if (!isGameOver) statusEl.textContent = oldText;
+  }, 3500);
+}
 
 document.body.classList.add("title-active");
 gameStartTime = performance.now();
