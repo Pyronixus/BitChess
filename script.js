@@ -18,8 +18,15 @@ let playMode = "bot",
   needsRender = 1,
   pointerDown = null,
   isDiscoMode = false;
+let discoExitStart = null;
+let discoExitFrom = null;
+let discoExitBackground = null;
+let discoExitMaterials = null;
+let discoExitCanvas = null;
+let discoExitContext = null;
+let discoExitTexture = null;
 
-const bgMusic = new Audio("assets/music/music.mp3");
+const bgMusic = new Audio("assets/music/finalBossAscent.mp3");
 bgMusic.loop = true;
 bgMusic.volume = 0.4;
 const discoMusic = new Audio("assets/music/disco.mp3");
@@ -204,6 +211,7 @@ const DEFAULT_SKIN = {
   q: 1.5,
   ct: 0.5,
   cu: { p: [], b: [], bg: [] },
+  musicIdx: 0,
   bgm: 1,
 };
 
@@ -286,6 +294,18 @@ const BG_PRESETS = [
   ["Sakura", "#f6a6c4", "#3a1a3a"],
   ["Vide", "#1a1a22", "#000000"],
 ];
+
+const MUSIC_TRACKS = [
+  "assets/music/finalBossAscent.mp3",
+  "assets/music/aCalculatedTurn.mp3",
+  "assets/music/aQuietGambit.mp3",
+  "assets/music/pawnLastAscent.mp3",
+];
+
+let currentMusicIdx = currentSkin.musicIdx || 0;
+
+bgMusic.loop = true;
+bgMusic.volume = 0.4;
 
 const pieceMats = [0, 1].map(() =>
   Array.from(
@@ -1049,7 +1069,9 @@ const createEl = (tag, className, text, onClick) => {
 };
 
 const formatTimer = () => {
-  const rawSeconds = (((isGameOver ? gameEndTime : performance.now()) - gameStartTime) / 1e3) | 0;
+  const rawSeconds =
+    (((isGameOver ? gameEndTime : performance.now()) - gameStartTime) / 1e3) |
+    0;
   const seconds = Math.max(0, rawSeconds);
   return ((seconds / 60) | 0) + ":" + String(seconds % 60).padStart(2, "0");
 };
@@ -1233,6 +1255,7 @@ const createRangeCtrl = (min, max, step, val, onChange) => {
   input.max = max;
   input.step = step;
   input.value = val;
+  input.classList.add("input-range");
   input.oninput = () => onChange(+input.value);
   input.onchange = saveSkin;
   return input;
@@ -1242,8 +1265,9 @@ const createColorCtrl = (val, onChange) => {
   const input = createEl("input");
   input.type = "color";
   input.value = val;
-  input.oninput = () => onChange(input.value);
-  input.onchange = saveSkin;
+  input.classList.add("input-range");
+  input.addEventListener("input", (e) => onChange(e.target.value));
+  input.addEventListener("change", () => saveSkin());
   return input;
 };
 
@@ -1468,7 +1492,7 @@ function openSkinModal() {
     panel.append(
       createLabel("MES PALETTES", customPalettes.length + "/10"),
       customGrid,
-      createSegmentCtrl(["+ SAUVER", "VIDER"], -1, (idx) => {
+      createSegmentCtrl(["SAUVER", "EFFACER"], -1, (idx) => {
         idx
           ? (customPalettes.length = 0)
           : customPalettes.length < 10 &&
@@ -1536,6 +1560,23 @@ function openOptionsModal() {
         ["MUSIQUE DE FOND", "bgm", updateMusicState],
       ]);
       panel.append(
+        createLabel("PISTE MUSICALE", "1 à 4"),
+        createSegmentCtrl(
+          [
+            "Final Boss Ascent",
+            "A Calculated Turn",
+            "A Quiet Gambit",
+            "Pawn's Last Ascent",
+          ],
+          currentSkin.musicIdx || 0,
+          (idx) => {
+            currentSkin.musicIdx = idx;
+            saveSkin();
+            updateMusicState();
+            reRender();
+          },
+          "segment-group",
+        ),
         createLabel("VOLUME", ""),
         createRangeCtrl(
           0,
@@ -1641,16 +1682,18 @@ function requestHint() {
 }
 
 function openGameOverModal(messageText) {
-  [392, 494, 587, 784].forEach((freq, idx) => setTimeout(() => playBeep(freq, 0.2), idx * 120));
+  [392, 494, 587, 784].forEach((freq, idx) =>
+    setTimeout(() => playBeep(freq, 0.2), idx * 120),
+  );
   openModal("FIN DE PARTIE", (panel) => {
     panel.append(
       createEl("div", "big-text", messageText.toUpperCase()),
       createLabel("TEMPS", formatTimer()),
       createLabel("COUPS", Math.ceil(chessApp.history().length / 2)),
-      createEl("button", "btn-primary", "REJOUER", () => { 
+      createEl("button", "btn-primary", "REJOUER", () => {
         hideBottomNewGameButton();
-        closeModal(); 
-        startNewGame(); 
+        closeModal();
+        startNewGame();
       }),
       createEl("button", "item-btn", "VOIR LE PLATEAU", () => {
         closeModal();
@@ -1664,10 +1707,15 @@ let bottomNewGameBtn = null;
 
 function showBottomNewGameButton() {
   if (!bottomNewGameBtn) {
-    bottomNewGameBtn = createEl("button", "btn-primary", "NOUVELLE PARTIE", () => {
-      hideBottomNewGameButton();
-      startNewGame();
-    });
+    bottomNewGameBtn = createEl(
+      "button",
+      "btn-primary",
+      "NOUVELLE PARTIE",
+      () => {
+        hideBottomNewGameButton();
+        startNewGame();
+      },
+    );
     bottomNewGameBtn.style.position = "fixed";
     bottomNewGameBtn.style.bottom = "85px";
     bottomNewGameBtn.style.left = "50%";
@@ -1908,11 +1956,17 @@ let lastTime = 0;
 
   for (let i = returnAnims.length; i--; ) {
     const anim = returnAnims[i],
-      progress = (anim.t = Math.min(1, anim.t + (deltaTime * currentSkin.sp) / 0.35)),
-      ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-      
+      progress = (anim.t = Math.min(
+        1,
+        anim.t + (deltaTime * currentSkin.sp) / 0.35,
+      )),
+      ease =
+        progress < 0.5
+          ? 2 * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
     anim.g.position.lerpVectors(anim.f, anim.to, ease);
-    
+
     if (progress == 1) {
       anim.g.position.copy(anim.to);
       returnAnims.splice(i, 1);
@@ -2001,23 +2055,91 @@ let lastTime = 0;
       needsRender = 1;
     }
   }
+
   if (isDiscoMode) {
     needsRender = 1;
-    
 
-    const discoTime = (timestamp - discoStartTime) * 0.001;
+    const TAU = Math.PI * 2;
+    const DURATION = 96;
+    const ACT_DURATION = DURATION / 20;
 
-    const hue = (timestamp * 0.08) % 360;
-    if (!(scene.background instanceof THREE.Color)) {
-      scene.background = new THREE.Color();
+    const time = Math.max(0, (timestamp - discoStartTime) / 1000);
+    const cycle = time % DURATION;
+    const phase = Math.min(19, Math.floor(cycle / ACT_DURATION));
+    const t = cycle - phase * ACT_DURATION;
+
+    const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+    const smooth = (v) => {
+      v = clamp(v);
+      return v * v * (3 - 2 * v);
+    };
+    const signPow = (v, p) => Math.sign(v) * Math.pow(Math.abs(v), p);
+
+    const colors =
+      scene.userData.discoShowColors ||
+      (scene.userData.discoShowColors = [
+        0xff27c8, 0x21f6ff, 0xffed38, 0x9855ff, 0x34ff83, 0xff5638, 0xff65a3,
+        0xffffff,
+      ]);
+
+    const beat = (1 + Math.sin(time * TAU * 2.1)) * 0.5;
+    const kick = Math.pow(Math.max(0, Math.sin(time * TAU * 2.1)), 8);
+    if (
+      !scene.userData.discoShowActive ||
+      scene.userData.discoShowSession !== discoStartTime
+    ) {
+      scene.userData.discoShowActive = true;
+      scene.userData.discoShowSession = discoStartTime;
+      scene.userData.discoShowOriginalBackground =
+        scene.background && scene.background.clone
+          ? scene.background.clone()
+          : scene.background;
+      scene.userData.discoShowFxPhase = -1;
+      scene.userData.discoShowLastParticleAt = timestamp;
     }
-    scene.background.setHSL(hue / 360, 0.9, 0.18);
 
-    const phaseDuration = 24;
-    const currentPhaseTime = discoTime % (phaseDuration * 4);
+    if (!(scene.background instanceof THREE.Color)) {
+      scene.background = new THREE.Color(0x101018);
+    }
+
+    scene.background.setHSL(
+      ((205 + time * 23 + phase * 19) % 360) / 360,
+      0.94,
+      0.055 + beat * 0.055,
+    );
+
+    const squares = Object.keys(activePieces).sort();
+    const pieceCount = Math.max(1, squares.length);
+
+    for (let i = 0; i < squares.length; i++) {
+      const group = activePieces[squares[i]];
+
+      if (group.userData.discoShowIndexSession !== discoStartTime) {
+        group.userData.discoShowIndex = i;
+        group.userData.discoShowIndexSession = discoStartTime;
+      }
+    }
+
+    if (scene.userData.discoShowFxPhase !== phase) {
+      scene.userData.discoShowFxPhase = phase;
+
+      const burstSquares =
+        phase === 19
+          ? ["c3", "f3", "c6", "f6", "d4", "e4", "d5", "e5"]
+          : ["d4", "e4", "d5", "e5"];
+
+      for (const sq of burstSquares) {
+        spawnParticles(getPos(sq), colors[phase % colors.length]);
+      }
+
+      scene.userData.discoShowLastParticleAt = timestamp;
+    }
+
+    const transition = smooth(t / 0.62);
 
     for (const sq in activePieces) {
       const group = activePieces[sq];
+
       if (group.userData.an) continue;
 
       const piece = chessApp.get(sq);
@@ -2027,83 +2149,713 @@ let lastTime = 0;
       const isBlack = piece.color === "b";
       const baseRotY = isBlack ? Math.PI : 0;
 
-      const fileIdx = sq.charCodeAt(0) - 97;
-      const rankIdx = parseInt(sq[1]) - 1;
-      const index = fileIdx * 8 + rankIdx;
+      const file = sq.charCodeAt(0) - 97;
+      const rank = Number(sq[1]) - 1;
 
-      if (currentPhaseTime < 24) {
-        const pTime = currentPhaseTime;
-        const angleOffset = (index / 64) * Math.PI * 2 + pTime * 1.5;
-        const radius = 2.4 + Math.sin(pTime * 2 + fileIdx) * 0.3;
+      const index = group.userData.discoShowIndex ?? 0;
+      const u = pieceCount > 1 ? index / (pieceCount - 1) : 0.5;
 
-        const targetX = Math.cos(angleOffset) * radius;
-        const targetZ = Math.sin(angleOffset) * radius;
-        const targetY = 0.2 + Math.abs(Math.sin(pTime * 4 + index)) * 0.4;
+      const gx = (file - 3.5) * 0.5;
+      const gz = (rank - 3.5) * 0.5;
 
-        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
-        group.rotation.y = baseRotY + pTime * 2;
-        group.rotation.x = Math.sin(pTime * 5 + index) * 0.2;
-        group.rotation.z = 0;
-        group.scale.copy(baseScale);
-      } else if (currentPhaseTime < 48) {
-        const pTime = currentPhaseTime - 24;
-        const side = isBlack ? -1 : 1;
-        const relX = (fileIdx - 3.5) * 0.5;
-        const relZ = (rankIdx - 3.5) * 0.5 + side * 1.5;
+      const fromKey = "discoShowFrom";
 
-        const pulse = Math.sin(pTime * 3) * 0.5;
-        const targetX = relX * (1 + pulse * 0.2);
-        const targetZ = relZ + Math.sin(pTime * 4 + fileIdx) * 0.3;
-        const targetY = Math.abs(Math.sin(pTime * 6 + rankIdx)) * 0.5;
+      if (
+        !group.userData[fromKey] ||
+        group.userData.discoShowPosePhase !== phase ||
+        group.userData.discoShowPoseSession !== discoStartTime
+      ) {
+        group.userData[fromKey] = {
+          x: group.position.x,
+          y: group.position.y,
+          z: group.position.z,
+          rx: group.rotation.x,
+          ry: group.rotation.y,
+          rz: group.rotation.z,
+          sx: group.scale.x,
+          sy: group.scale.y,
+          sz: group.scale.z,
+        };
 
-        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
-        group.rotation.y = baseRotY + Math.sin(pTime * 3) * 0.8;
-        group.rotation.x = 0;
-        group.rotation.z = Math.cos(pTime * 4) * 0.3;
-        group.scale.copy(baseScale);
-      } else if (currentPhaseTime < 72) {
-        const pTime = currentPhaseTime - 48;
-        const waveProgress = (pTime * 2 + index * 0.15) % (Math.PI * 4);
+        group.userData.discoShowPosePhase = phase;
+        group.userData.discoShowPoseSession = discoStartTime;
+      }
 
-        const targetX = Math.sin(waveProgress) * 2.5;
-        const targetZ = (index / 64) * 6 - 3;
-        const targetY = 0.1 + Math.abs(Math.sin(pTime * 8 + index)) * 0.35;
+      const from = group.userData[fromKey];
 
-        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
-        group.rotation.y = baseRotY + Math.sin(pTime * 4 + index);
-        group.rotation.x = 0;
-        group.rotation.z = Math.sin(pTime * 6) * 0.25;
-        group.scale.copy(baseScale);
+      let x = gx;
+      let y = 0.12;
+      let z = gz;
+
+      let rx = 0;
+      let ry = baseRotY;
+      let rz = 0;
+
+      let sx = 1;
+      let sy = 1;
+      let sz = 1;
+
+      const side = isBlack ? -1 : 1;
+      const wave = Math.sin(time * 3.1 - index * 0.41);
+      const jump = Math.max(0, Math.sin(time * 4.2 - index * 0.27));
+
+      if (phase === 0) {
+        const pulse = Math.sin(t * 3.2 - (file + rank) * 0.48);
+
+        x = gx + Math.sin(t * 2.4 + rank) * 0.07;
+        z = gz + Math.cos(t * 2.4 + file) * 0.07;
+        y = 0.12 + Math.max(0, pulse) * (0.22 + kick * 0.18);
+
+        ry = baseRotY + Math.sin(t * 2 + index * 0.15) * 0.24;
+        rx = pulse * 0.08;
+        rz = Math.cos(t * 2.5 + file) * 0.08;
+
+        sx = 1 + beat * 0.04;
+        sy = 1 + kick * 0.18;
+        sz = sx;
+      } else if (phase === 1) {
+        const a = u * TAU * 1.5 + t * 2.5;
+
+        x = Math.sin(a) * 2.7;
+        z = (u - 0.5) * 5.3;
+        y = 0.16 + Math.max(0, Math.sin(a * 2 + t)) * 0.65;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.cos(a * 2) * 0.35;
+        rz = Math.sin(a * 1.5) * 0.28;
+
+        sx = 1 + kick * 0.12;
+        sy = 1 + jump * 0.22;
+        sz = sx;
+      } else if (phase === 2) {
+        const ring = index % 4;
+        const slot = Math.floor(index / 4);
+        const runnerCount = Math.max(1, Math.ceil(pieceCount / 4));
+
+        const a =
+          (slot / runnerCount) * TAU +
+          t * (1.4 + ring * 0.26) * (ring % 2 ? -1 : 1);
+
+        const radius = 0.55 + ring * 0.72;
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.2 + ring * 0.12 + Math.max(0, Math.sin(a * 2 - t * 2)) * 0.4;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a * 2) * 0.18;
+        rz = Math.cos(a * 2) * 0.15;
+
+        sx = 1 + kick * 0.15;
+        sy = 1 + kick * 0.25;
+        sz = sx;
+      } else if (phase === 3) {
+        const a = u * TAU * 3.2 + t * 2.15;
+        const radius = 0.25 + u * 2.8;
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.18 + (0.5 + 0.5 * Math.sin(a * 1.5 + t)) * 0.8;
+
+        ry = baseRotY + a;
+        rx = Math.sin(a * 2) * 0.32;
+        rz = Math.cos(a * 1.5) * 0.25;
+
+        sx = 1 + Math.sin(a * 2) * 0.08;
+        sy = 1 + kick * 0.22;
+        sz = sx;
+      } else if (phase === 4) {
+        const checker = (file + rank) % 2 === 0 ? 1 : -1;
+
+        const expansion = 1 + checker * (0.08 + beat * 0.12) + kick * 0.12;
+
+        const pogo = Math.max(0, Math.sin(t * 5.5 + checker * Math.PI * 0.5));
+
+        x = gx * expansion;
+        z = gz * expansion;
+        y = 0.12 + Math.pow(pogo, 2) * (0.8 + kick * 0.8);
+
+        ry = baseRotY + checker * t * 2.8;
+        rx = checker * Math.sin(t * 4) * 0.55;
+        rz = checker * Math.cos(t * 4) * 0.42;
+
+        sx = 1 - kick * 0.14;
+        sy = 1 + kick * 0.55;
+        sz = sx;
+      } else if (phase === 5) {
+        const lane = index % 2 === 0 ? 1 : -1;
+        const q = 2.7 * Math.sin(u * TAU * 2.5 + t * 2.6);
+
+        x = q;
+        z = lane * q;
+        y = 0.18 + Math.max(0, Math.cos(u * TAU * 2.5 + t * 2.6)) * 0.55;
+
+        ry = baseRotY + t * 2.2 * lane;
+        rx = Math.sin(t * 4 + index) * 0.3;
+        rz = (lane * Math.PI) / 4;
+
+        sx = 1 + kick * 0.14;
+        sy = 1 + kick * 0.28;
+        sz = sx;
+      } else if (phase === 6) {
+        const tierCount = Math.max(2, Math.ceil(pieceCount / 8));
+        const tier = Math.floor(index / 8);
+        const arm = index % 8;
+
+        const radius = 0.5 + (tier / (tierCount - 1)) * 2.2;
+        const a = (arm * TAU) / 8 + t * (tier % 2 ? -2.0 : 2.0);
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.2 + Math.max(0, Math.sin(a * 2 - t * 3)) * 0.45;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a) * 0.24;
+        rz = Math.cos(a) * 0.22;
+
+        sx = 1 + kick * 0.18;
+        sy = 1 + kick * 0.34;
+        sz = sx;
+      } else if (phase === 7) {
+        const a = u * TAU + t * 1.6;
+
+        x = 2.65 * Math.sin(a);
+        z = 2.1 * Math.sin(a) * Math.cos(a);
+        y = 0.2 + Math.abs(Math.sin(a * 2 + t)) * 0.72;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a * 2) * 0.35;
+        rz = Math.cos(a * 2) * 0.26;
+
+        sx = 1 + Math.sin(a * 2) * 0.08;
+        sy = 1 + kick * 0.24;
+        sz = sx;
+      } else if (phase === 8) {
+        const lane = index % 8;
+        const runner = Math.floor(index / 8);
+        const runnerCount = Math.max(1, Math.ceil(pieceCount / 8));
+
+        const a =
+          (runner / runnerCount) * TAU +
+          t * (isBlack ? 2.0 : -1.65) +
+          lane * 0.06;
+
+        const radius = 0.65 + lane * 0.28;
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.15 + Math.max(0, Math.sin(a * 3)) * 0.24;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a * 3) * 0.22;
+        rz = Math.cos(a * 2) * 0.12;
+
+        sx = 1 + kick * 0.12;
+        sy = 1 + kick * 0.3;
+        sz = sx;
+      } else if (phase === 9) {
+        const a = u * TAU + t * 0.95;
+
+        x = 0.15 * 16 * Math.pow(Math.sin(a), 3);
+
+        z =
+          -0.13 *
+          (13 * Math.cos(a) -
+            5 * Math.cos(2 * a) -
+            2 * Math.cos(3 * a) -
+            Math.cos(4 * a));
+
+        y = 0.2 + Math.abs(Math.sin(a * 2 + t)) * 0.55;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a * 2) * 0.3;
+        rz = Math.cos(a * 3) * 0.2;
+
+        sx = 1 + kick * 0.16;
+        sy = 1 + kick * 0.32;
+        sz = sx;
+      } else if (phase === 10) {
+        const a = u * TAU + t * 0.9;
+        const radius = 1.35 + 1.2 * Math.cos(8 * a);
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.2 + Math.abs(Math.sin(a * 4 - t)) * 0.85;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a * 4) * 0.36;
+        rz = Math.cos(a * 8) * 0.28;
+
+        sx = 1 + kick * 0.2;
+        sy = 1 + Math.sin(a * 8 + t) * 0.12;
+        sz = sx;
+      } else if (phase === 11) {
+        const strand = index % 2 ? Math.PI : 0;
+        const strandCount = Math.max(1, Math.ceil(pieceCount / 2));
+        const strandU = Math.floor(index / 2) / Math.max(1, strandCount - 1);
+
+        const a = strandU * TAU * 2.25 + t * 2.3 + strand;
+
+        x = Math.cos(a) * 1.45;
+        z = (strandU - 0.5) * 5.2;
+        y = 1.05 + Math.sin(a) * 0.82;
+
+        ry = baseRotY + a;
+        rx = Math.cos(a) * 0.38;
+        rz = Math.sin(a) * 0.28;
+
+        sx = 1 + Math.sin(a * 2) * 0.1;
+        sy = 1 + kick * 0.18;
+        sz = sx;
+      } else if (phase === 12) {
+        const fall = t * 3.0 - (file + rank) * 0.7;
+        const domino = Math.max(0, Math.sin(fall));
+
+        x = gx + Math.sin(fall) * 0.25;
+        z = gz + Math.cos(fall) * 0.2;
+        y = 0.12 + Math.pow(domino, 4) * (1.35 + kick * 0.5);
+
+        ry = baseRotY + Math.sin(fall) * 0.2;
+        rx = -Math.max(0, Math.cos(fall)) * 0.65;
+        rz = Math.sin(fall) * 0.18;
+
+        sx = 1 - domino * 0.08;
+        sy = 1 + domino * 0.35;
+        sz = sx;
+      } else if (phase === 13) {
+        const layerCount = Math.max(1, Math.ceil(pieceCount / 8));
+        const layer = Math.floor(index / 8);
+        const level = layerCount > 1 ? layer / (layerCount - 1) : 0.5;
+
+        const a = ((index % 8) * TAU) / 8 + t * (layer % 2 ? -1.8 : 1.8);
+
+        const radius = 0.48 + Math.abs(level - 0.5) * 4.15;
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.25 + level * 2.0;
+
+        ry = baseRotY + a;
+        rx = Math.sin(a * 2) * 0.28;
+        rz = Math.cos(a * 2) * 0.2;
+
+        sx = 1 + kick * 0.15;
+        sy = 1 + Math.sin(a * 2) * 0.1;
+        sz = sx;
+      } else if (phase === 14) {
+        const a = u * TAU * 2.0 + t * 1.8;
+        const b = u * TAU * 3.0 - t * 1.4;
+
+        x = 2.55 * Math.sin(a);
+        z = 2.15 * Math.sin(b);
+        y = 0.28 + (0.5 + 0.5 * Math.cos(a + b)) * 1.35;
+
+        ry = baseRotY + a + b;
+        rx = Math.sin(a * 2) * 0.45;
+        rz = Math.cos(b * 2) * 0.35;
+
+        sx = 1 + kick * 0.17;
+        sy = 1 + jump * 0.3;
+        sz = sx;
+      } else if (phase === 15) {
+        const a = u * TAU * 4.5 - t * 3.0;
+        const radius = 0.3 + u * 2.55;
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.18 + u * 2.0 + Math.max(0, Math.sin(a * 2)) * 0.22;
+
+        ry = baseRotY + a;
+        rx = Math.cos(a) * 0.42;
+        rz = Math.sin(a) * 0.32;
+
+        sx = 1 + kick * 0.2;
+        sy = 1 + kick * 0.28;
+        sz = sx;
+      } else if (phase === 16) {
+        const a = u * TAU + t * 0.85;
+        const radius = 1.3 + 0.95 * (0.5 + 0.5 * Math.cos(8 * a));
+
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.24 + Math.abs(Math.sin(a * 4 - t * 1.8)) * 0.72;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a * 4) * 0.38;
+        rz = Math.cos(a * 8) * 0.28;
+
+        sx = 1 + kick * 0.18;
+        sy = 1 + Math.sin(a * 8 + t) * 0.13;
+        sz = sx;
+      } else if (phase === 17) {
+        const a = u * TAU + t * (isBlack ? 2.1 : -1.75);
+        const c = Math.cos(a);
+        const s = Math.sin(a);
+
+        x = 2.65 * signPow(c, 0.55);
+        z = 2.25 * signPow(s, 0.55);
+        y = 0.16 + Math.pow(Math.max(0, Math.sin(a * 4)), 4) * 0.8;
+
+        ry = baseRotY + a + Math.PI / 2;
+        rx = Math.sin(a * 4) * 0.3;
+        rz = Math.cos(a * 4) * 0.22;
+
+        sx = 1 + kick * 0.16;
+        sy = 1 + kick * 0.35;
+        sz = sx;
+      } else if (phase === 18) {
+        const ix = ((index % 4) - 1.5) * 0.82;
+        const iz = ((Math.floor(index / 4) % 4) - 1.5) * 0.82;
+
+        const layers = Math.max(1, Math.ceil(pieceCount / 16));
+        const iy =
+          (Math.floor(index / 16) - (layers - 1) / 2) *
+          (layers === 2 ? 1.15 : 0.8);
+
+        const ax = t * 1.45;
+        const ay = -t * 1.9;
+
+        const y1 = iy * Math.cos(ax) - iz * Math.sin(ax);
+        const z1 = iy * Math.sin(ax) + iz * Math.cos(ax);
+
+        x = ix * Math.cos(ay) + z1 * Math.sin(ay);
+        z = -ix * Math.sin(ay) + z1 * Math.cos(ay);
+        y = 1.45 + y1;
+
+        ry = baseRotY + ay;
+        rx = ax;
+        rz = Math.sin(t * 2) * 0.2;
+
+        sx = 1 + kick * 0.16;
+        sy = 1 + kick * 0.16;
+        sz = 1 + kick * 0.16;
       } else {
-        const pTime = currentPhaseTime - 72;
-        const sideX = isBlack ? 2.2 : -2.2;
-        const lineZ = (fileIdx - 3.5) * 0.7;
+        const a = u * TAU * 4.8 + t * 3.3;
+        const radius = 0.25 + u * 2.85;
 
-        const jumpCycle = Math.sin(pTime * 6 + fileIdx);
-        const targetX = sideX + Math.sin(pTime * 3) * 0.3;
-        const targetZ = lineZ;
-        const targetY = jumpCycle > 0 ? jumpCycle * 0.8 : 0.1;
+        x = Math.cos(a) * radius;
+        z = Math.sin(a) * radius;
+        y = 0.2 + u * 2.2 + Math.max(0, Math.sin(a * 1.7)) * 0.5;
 
-        group.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.1);
-        group.rotation.y =
-          baseRotY +
-          (isBlack ? -Math.PI / 2 : Math.PI / 2) +
-          Math.sin(pTime * 8) * 0.5;
-        group.rotation.x = jumpCycle > 0 ? jumpCycle * 1.2 : 0; // Effet de salto arrière
-        group.rotation.z = Math.cos(pTime * 6) * 0.4;
+        ry = baseRotY + a;
+        rx = Math.sin(a * 2) * 0.65;
+        rz = Math.cos(a * 2) * 0.45;
 
-        const beatStretch = Math.sin(pTime * 12) * 0.2;
-        group.scale.set(
-          baseScale.x * (1 - beatStretch),
-          baseScale.y * (1 + beatStretch),
-          baseScale.z,
-        );
+        sx = 1 + kick * 0.3;
+        sy = 1 + kick * 0.65;
+        sz = 1 + kick * 0.3;
+
+        const settle = smooth((t - 3.15) / 1.65);
+
+        x = x * (1 - settle) + gx * settle;
+        z = z * (1 - settle) + gz * settle;
+        y = y * (1 - settle) + 0.12 * settle;
+
+        rx *= 1 - settle;
+        ry = baseRotY + (ry - baseRotY) * (1 - settle);
+        rz *= 1 - settle;
+
+        sx = sx * (1 - settle) + settle;
+        sy = sy * (1 - settle) + settle;
+        sz = sz * (1 - settle) + settle;
+      }
+
+      group.position.set(
+        from.x + (x - from.x) * transition,
+        from.y + (y - from.y) * transition,
+        from.z + (z - from.z) * transition,
+      );
+
+      group.rotation.set(
+        from.rx + (rx - from.rx) * transition,
+        from.ry + (ry - from.ry) * transition,
+        from.rz + (rz - from.rz) * transition,
+      );
+
+      group.scale.set(
+        from.sx + (baseScale.x * sx - from.sx) * transition,
+        from.sy + (baseScale.y * sy - from.sy) * transition,
+        from.sz + (baseScale.z * sz - from.sz) * transition,
+      );
+
+      if (!group.userData.discoShowSetup) {
+        const meshes = [];
+        const materials = [];
+
+        group.traverse((obj) => {
+          if (!obj.isMesh || !obj.material) return;
+
+          const original = obj.material;
+          const sourceMaterials = Array.isArray(original)
+            ? original
+            : [original];
+
+          const clones = sourceMaterials.map((mat) => mat.clone());
+
+          obj.material = Array.isArray(original) ? clones : clones[0];
+
+          meshes.push({
+            mesh: obj,
+            original,
+            cloned: Array.isArray(original) ? clones : clones[0],
+          });
+
+          for (const material of clones) {
+            materials.push({
+              material,
+              color: material.color ? material.color.clone() : null,
+              emissive: material.emissive ? material.emissive.clone() : null,
+              emissiveIntensity: material.emissiveIntensity ?? 1,
+            });
+          }
+        });
+
+        group.userData.discoShowSetup = true;
+        group.userData.discoShowMeshes = meshes;
+        group.userData.discoShowMaterials = materials;
+        group.userData.discoShowTint = new THREE.Color();
+      }
+
+      const tint = group.userData.discoShowTint;
+
+      const hue =
+        (time * 92 +
+          index * 13.7 +
+          phase * 31 +
+          Math.sin(time * 4 + index * 0.23) * 24) %
+        360;
+
+      tint.setHSL(((hue + 360) % 360) / 360, 1, 0.52 + beat * 0.1);
+
+      for (const entry of group.userData.discoShowMaterials) {
+        const material = entry.material;
+
+        if (material.color && entry.color) {
+          material.color.copy(entry.color).lerp(tint, 0.82);
+        }
+
+        if (material.emissive && entry.emissive) {
+          material.emissive.copy(entry.emissive).lerp(tint, 0.95);
+          material.emissiveIntensity =
+            entry.emissiveIntensity + 0.4 + beat * 1.5;
+        }
       }
     }
 
-    if (Math.random() < 0.35) {
-      const randomSq = SQUARES_LIST[(Math.random() * 64) | 0];
-      spawnParticles(getPos(randomSq), Math.random() * 0xffffff);
+    const particleInterval =
+      phase >= 19 ? 170 : phase >= 15 ? 270 : phase >= 9 ? 390 : 580;
+
+    if (
+      timestamp - scene.userData.discoShowLastParticleAt >=
+      particleInterval
+    ) {
+      scene.userData.discoShowLastParticleAt = timestamp;
+
+      const particleIndex = Math.floor(time * (phase >= 19 ? 8 : 4.5));
+
+      const sq = SQUARES_LIST[particleIndex % SQUARES_LIST.length];
+
+      spawnParticles(
+        getPos(sq),
+        colors[(particleIndex + phase) % colors.length],
+      );
+    }
+  }
+
+  if (!isDiscoMode && scene.userData.discoShowActive) {
+    const EXIT_DURATION = 2.5;
+
+    if (discoExitStart === null) {
+      discoExitStart = timestamp;
+
+      discoExitFrom = {};
+
+      for (const sq in activePieces) {
+        const group = activePieces[sq];
+
+        discoExitFrom[sq] = {
+          position: group.position.clone(),
+          rotation: group.rotation.clone(),
+          scale: group.scale.clone(),
+        };
+      }
+
+      discoExitBackground = scene.background.clone();
+
+      discoExitMaterials = {};
+
+      for (const sq in activePieces) {
+        const group = activePieces[sq];
+
+        discoExitMaterials[sq] =
+          group.userData.discoShowMaterials?.map((entry) => ({
+            entry,
+            color: entry.material.color?.clone() ?? null,
+            emissive: entry.material.emissive?.clone() ?? null,
+            intensity: entry.material.emissiveIntensity ?? 1,
+          })) ?? [];
+      }
+    }
+
+    const progress = Math.min(
+      1,
+      (timestamp - discoExitStart) / (EXIT_DURATION * 1000),
+    );
+
+    const ease = progress * progress * (3 - 2 * progress);
+
+    needsRender = 1;
+
+    const originalBackground = scene.userData.discoShowOriginalBackground;
+
+    if (
+      originalBackground &&
+      originalBackground.isTexture &&
+      originalBackground.image
+    ) {
+      const image = originalBackground.image;
+
+      if (!discoExitCanvas) {
+        discoExitCanvas = document.createElement("canvas");
+        discoExitCanvas.width = image.width || 96;
+        discoExitCanvas.height = image.height || 54;
+        discoExitContext = discoExitCanvas.getContext("2d");
+
+        discoExitTexture = setNearestFilter(
+          new THREE.CanvasTexture(discoExitCanvas),
+        );
+      }
+
+      const ctx = discoExitContext;
+      const width = discoExitCanvas.width;
+      const height = discoExitCanvas.height;
+
+      ctx.globalAlpha = 1;
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(image, 0, 0, width, height);
+
+      ctx.globalAlpha = 1 - ease;
+      ctx.fillStyle = "#" + discoExitBackground.getHexString();
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.globalAlpha = 1;
+
+      discoExitTexture.needsUpdate = true;
+      scene.background = discoExitTexture;
+    } else {
+      if (!(scene.background instanceof THREE.Color)) {
+        scene.background = new THREE.Color(0x101018);
+      }
+
+      const targetColor =
+        originalBackground instanceof THREE.Color
+          ? originalBackground
+          : new THREE.Color(0x101018);
+
+      scene.background.copy(discoExitBackground).lerp(targetColor, ease);
+    }
+
+    for (const sq in activePieces) {
+      const group = activePieces[sq];
+      const piece = chessApp.get(sq);
+      const start = discoExitFrom[sq];
+
+      if (!start || !piece || group.userData.an) continue;
+
+      const target = getPos(sq);
+      const baseRotY = piece.color === "b" ? Math.PI : 0;
+
+      group.position.lerpVectors(start.position, target, ease);
+
+      group.rotation.set(
+        start.rotation.x * (1 - ease),
+        start.rotation.y + (baseRotY - start.rotation.y) * ease,
+        start.rotation.z * (1 - ease),
+      );
+
+      group.scale.lerpVectors(start.scale, group.userData.bs, ease);
+
+      const entries = discoExitMaterials[sq] ?? [];
+
+      for (const saved of entries) {
+        const mat = saved.entry.material;
+
+        if (mat.color && saved.color) {
+          mat.color.lerpColors(saved.color, saved.entry.color, ease);
+        }
+
+        if (mat.emissive && saved.emissive) {
+          mat.emissive.lerpColors(saved.emissive, saved.entry.emissive, ease);
+
+          mat.emissiveIntensity =
+            saved.intensity +
+            (saved.entry.emissiveIntensity - saved.intensity) * ease;
+        }
+      }
+    }
+
+    if (progress >= 1) {
+      scene.userData.discoShowActive = false;
+
+      const originalBackground = scene.userData.discoShowOriginalBackground;
+
+      scene.background =
+        originalBackground && originalBackground.clone
+          ? originalBackground.clone()
+          : originalBackground;
+
+      if (discoExitTexture) discoExitTexture.dispose();
+
+      discoExitCanvas = null;
+      discoExitContext = null;
+      discoExitTexture = null;
+
+      for (const sq in activePieces) {
+        const group = activePieces[sq];
+        const meshes = group.userData.discoShowMeshes || [];
+
+        for (const entry of meshes) {
+          entry.mesh.material = entry.original;
+
+          const clones = Array.isArray(entry.cloned)
+            ? entry.cloned
+            : [entry.cloned];
+
+          for (const material of clones) {
+            material.dispose();
+          }
+        }
+
+        if (!group.userData.an && chessApp.get(sq)) {
+          const piece = chessApp.get(sq);
+
+          group.position.copy(getPos(sq));
+          group.rotation.set(0, piece.color === "b" ? Math.PI : 0, 0);
+          group.scale.copy(group.userData.bs);
+        }
+
+        delete group.userData.discoShowSetup;
+        delete group.userData.discoShowMeshes;
+        delete group.userData.discoShowMaterials;
+        delete group.userData.discoShowTint;
+        delete group.userData.discoShowFrom;
+        delete group.userData.discoShowPosePhase;
+        delete group.userData.discoShowPoseSession;
+        delete group.userData.discoShowIndex;
+        delete group.userData.discoShowIndexSession;
+      }
+
+      delete scene.userData.discoShowFxPhase;
+      delete scene.userData.discoShowLastParticleAt;
+      delete scene.userData.discoShowOriginalBackground;
+      delete scene.userData.discoShowSession;
+
+      discoExitStart = null;
+      discoExitFrom = null;
+      discoExitBackground = null;
+      discoExitMaterials = null;
+
+      needsRender = 1;
     }
   }
 
@@ -2114,6 +2866,10 @@ function updateMusicState() {
   if (!currentSkin.bgm || isTitleScreen || isDiscoMode) {
     bgMusic.pause();
   } else {
+    const targetSrc = MUSIC_TRACKS[currentSkin.musicIdx || 0];
+    if (!bgMusic.src.includes(targetSrc)) {
+      bgMusic.src = targetSrc;
+    }
     bgMusic.play().catch(() => {});
   }
 }
@@ -2151,13 +2907,22 @@ let discoStartTime = 0;
 
 function toggleDiscoMode() {
   isDiscoMode = !isDiscoMode;
-  
+
   if (isDiscoMode) {
+    discoExitStart = null;
+    discoExitFrom = null;
+    discoExitBackground = null;
+    discoExitMaterials = null;
+
+    if (discoExitTexture) discoExitTexture.dispose();
+    discoExitCanvas = null;
+    discoExitContext = null;
+    discoExitTexture = null;
     discoStartTime = performance.now();
     bgMusic.pause();
     discoMusic.currentTime = 0;
     discoMusic.play().catch(() => {});
-    
+
     clearTimeout(discoTimeout);
     discoTimeout = setTimeout(() => {
       if (isDiscoMode) toggleDiscoMode();
@@ -2168,23 +2933,14 @@ function toggleDiscoMode() {
   } else {
     clearTimeout(discoTimeout);
     discoMusic.pause();
-    
+
     if (discoStartTime) {
       gameStartTime += performance.now() - discoStartTime;
       discoStartTime = 0;
     }
 
-    updateMusicState(); 
+    updateMusicState();
     showDiscoBanner("💤 Retour au calme.");
-    applySkinSettings();
-    
-    for (const sq in activePieces) {
-      const group = activePieces[sq];
-      group.position.copy(getPos(sq));
-      const pieceData = chessApp.get(sq);
-      group.rotation.set(0, (pieceData && pieceData.color === 'b') ? Math.PI : 0, 0);
-      group.scale.copy(group.userData.bs);
-    }
     needsRender = 1;
   }
 }
@@ -2196,6 +2952,28 @@ function showDiscoBanner(text) {
   setTimeout(() => {
     if (!isGameOver) statusEl.textContent = oldText;
   }, 3500);
+}
+
+// Easter egg mobile : quick clics on the logo
+
+let logoClickCount = 0;
+let logoClickTimer = null;
+
+const logoImg = qs("#logoImg");
+if (logoImg) {
+  logoImg.addEventListener("click", () => {
+    logoClickCount++;
+    clearTimeout(logoClickTimer);
+
+    logoClickTimer = setTimeout(() => {
+      logoClickCount = 0;
+    }, 1500);
+
+    if (logoClickCount >= 6) {
+      toggleDiscoMode();
+      logoClickCount = 0;
+    }
+  });
 }
 
 document.body.classList.add("title-active");

@@ -1,45 +1,38 @@
 <!doctype html>
 <html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
-    <title>BitChess</title>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="style.css" />
-    <link rel="icon" type="image/png" href="assets/icons/icon-32.png" />
-    <link
-      rel="apple-touch-icon"
-      type="image/png"
-      sizes="192x192"
-      href="assets/icons/icon-192.png"
-    />
-  </head>
 
-  <body>
-    <canvas id="boardCanvas"></canvas>
-    <div id="statusContainer" class="panel-bg">
-      <i id="statusDot"></i><span id="statusText">BITCHESS</span>
-    </div>
-    <div id="bottomBar" class="panel-bg">
-      <button id="btnUndo">UNDO</button><button id="btnBot">BOT</button
-      ><button id="btnView">VUE</button><button id="btnSkin">SKIN</button
-      ><button id="btnMore">PLUS</button>
-    </div>
-    <div id="modalOverlay" hidden></div>
-    <div id="titleScreen">
-      <img id="logoImg" src="assets/icons/icon-192.png" alt="Logo" />
-      <h1>Bit<b>Chess</b></h1>
-      <button id="btnPlay" class="btn-primary">JOUER</button
-      ><button id="btnContinue" class="btn-primary btn-alt" hidden>CONTINUER</button>
-    </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-    <script src="script.js"></script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>BitChess</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Press+Start+2P&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/png" href="assets/icons/icon-32.png" />
+  <link rel="apple-touch-icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png" />
+</head>
+
+<body>
+  <canvas id="boardCanvas"></canvas>
+  <div id="statusContainer" class="panel-bg">
+    <i id="statusDot"></i><span id="statusText">BITCHESS</span>
+  </div>
+  <div id="bottomBar" class="panel-bg">
+    <button id="btnUndo">UNDO</button><button id="btnBot">BOT</button><button id="btnView">VUE</button><button
+      id="btnSkin">SKIN</button><button id="btnMore">PLUS</button>
+  </div>
+  <div id="modalOverlay" hidden></div>
+  <div id="titleScreen">
+    <img id="logoImg" src="assets/icons/icon-192.png" alt="Logo" />
+    <h1>Bit<b>Chess</b></h1>
+    <button id="btnPlay" class="btn-primary">JOUER</button><button id="btnContinue" class="btn-primary btn-alt"
+      hidden>CONTINUER</button>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="script.js"></script>
+</body>
+
 </html>
